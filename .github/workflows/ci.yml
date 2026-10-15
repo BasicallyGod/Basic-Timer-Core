@@ -29,4 +29,4 @@ jobs:
           if [ -z "$VERSION" ]; then VERSION="${GITHUB_REF_NAME#v}"; fi
           dotnet pack src/Timer.Storage -c Release -p:Version="$VERSION" -o out
           dotnet pack src/Timer.Core -c Release -p:Version="$VERSION" -o out
-          dotnet nuget push "out/*.nupkg" --source "https://nuget.pkg.github.com/BasicallyGod/index.json" --api-key "${{ secrets.GITHUB_TOKEN }}" --skip-duplicate
+          dotnet nuget push out/*.nupkg --source "https://nuget.pkg.github.com/BasicallyGod/index.json" --api-key "${{ secrets.GITHUB_TOKEN }}" --skip-duplicate
