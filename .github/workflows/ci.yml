@@ -1,0 +1,26 @@
+name: ci
+on:
+  pull_request:
+  push:
+    branches: [main]
+    tags: ['v*']
+permissions:
+  contents: read
+  packages: write
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with: { dotnet-version: 8.0.x }
+      - run: dotnet test tests/Timer.Shared.Tests -c Release
+      # A version tag such as v0.1.0 publishes both packages to GitHub Packages.
+      - name: Pack and publish
+        if: startsWith(github.ref, 'refs/tags/v')
+        shell: bash
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          dotnet pack src/Timer.Storage -c Release -p:Version="$VERSION" -o out
+          dotnet pack src/Timer.Core -c Release -p:Version="$VERSION" -o out
+          dotnet nuget push "out/*.nupkg" --source "https://nuget.pkg.github.com/BasicallyGod/index.json" --api-key "${{ secrets.GITHUB_TOKEN }}" --skip-duplicate

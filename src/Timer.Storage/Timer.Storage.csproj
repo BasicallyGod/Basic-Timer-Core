@@ -1,0 +1,10 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <PackageId>BasicallyGod.Timer.Storage</PackageId>
+    <Description>SQLite storage, undo history, ledger editing and exports for the timer engine.</Description>
+  </PropertyGroup>
+  <ItemGroup><ProjectReference Include="../Timer.Core/Timer.Core.csproj" /></ItemGroup>
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Data.Sqlite" Version="8.0.10" />
+  </ItemGroup>
+</Project>

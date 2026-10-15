@@ -1,0 +1,14 @@
+<Project>
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Authors>BasicallyGod</Authors>
+    <RepositoryUrl>https://github.com/BasicallyGod/Basic-Timer-Core</RepositoryUrl>
+    <PackageReadmeFile>README.md</PackageReadmeFile>
+    <Version Condition="'$(Version)' == ''">0.1.0-dev</Version>
+  </PropertyGroup>
+  <ItemGroup>
+    <None Include="$(MSBuildThisFileDirectory)README.md" Pack="true" PackagePath="/" />
+  </ItemGroup>
+</Project>

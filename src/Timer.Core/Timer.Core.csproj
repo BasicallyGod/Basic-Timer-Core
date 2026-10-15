@@ -1,0 +1,6 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <PackageId>BasicallyGod.Timer.Core</PackageId>
+    <Description>Platform-independent time tracking engine, schedules, day maths and theme model.</Description>
+  </PropertyGroup>
+</Project>
