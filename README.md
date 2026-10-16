@@ -4,10 +4,15 @@ The shared engine behind Basic's timer apps, published as two NuGet packages on 
 
 | Package | What it holds |
 | --- | --- |
-| `BasicallyGod.Timer.Core` | Tracking engine, schedules (including overnight shifts), day maths, day notes, theme model. No UI types. |
+| `BasicallyGod.Timer.Core` | Tracking engine, schedules (including overnight shifts), day maths, day notes, theme model, the note shorthand and `#Tag` rule (`NoteShorthand`, `AccountTags`), keyboard shortcut parsing (`HotkeySpec`) and the feed reader (`Feed`). No UI types. |
 | `BasicallyGod.Timer.Storage` | SQLite database (schema 3, forward-only upgrades), `TimerStore`, undo history, ledger editing, credit review, exports. |
 
 An app keeps its own settings without changing these libraries: `StoreSettings.Extras` carries appearance lines and JSON sections the library does not own and saves them back untouched.
+
+## Versions
+
+- **0.2.0** moves the note shorthand, the `#Tag` rule and the shortcut parser here from the desk app (namespace `Timer.Core`), and adds `Feed`: reading Markdown files from a folder into one newest-first stream, with duplicate and age rules and a folder-size note. `Trinkets.FindAccountTag` in the desk app is now `AccountTags.Find`.
+- **0.1.0** is the engine and storage as they were when they left the original app.
 
 ## Releasing
 
