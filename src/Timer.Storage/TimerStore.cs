@@ -74,15 +74,34 @@ public sealed class TimerStore : IDisposable
     private string? Meta(string key) => database.Scalar("SELECT value FROM meta WHERE key = $k", ("$k", key)) as string;
 
     // ---- Notes on a day. They are small and edited one at a time, so each change is its own statement, outside the undo history. ----
-    public List<DayNote> LoadDayNotes() => database.Query("SELECT id, day, at_time, text, done, end_time FROM day_notes ORDER BY day, at_time, id",
+    public List<DayNote> LoadDayNotes() => database.Query("SELECT id, day, at_time, text, done, end_time, series_id FROM day_notes ORDER BY day, at_time, id",
         r => new DayNote(r.GetInt64(0), DateTime.ParseExact(r.GetString(1), "yyyy-MM-dd", CultureInfo.InvariantCulture),
             r.IsDBNull(2) ? null : TimeSpan.ParseExact(r.GetString(2), "hh\\:mm", CultureInfo.InvariantCulture), r.GetString(3), r.GetInt64(4) == 1,
-            r.IsDBNull(5) ? null : TimeSpan.ParseExact(r.GetString(5), "hh\\:mm", CultureInfo.InvariantCulture)));
-    public long AddDayNote(DateTime day, TimeSpan? at, string text, TimeSpan? end = null)
-        => database.Insert("INSERT INTO day_notes (day, at_time, text, end_time) VALUES ($d, $t, $x, $e)", ("$e", end?.ToString("hh\\:mm", CultureInfo.InvariantCulture)), ("$d", day.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture)), ("$t", at?.ToString("hh\\:mm", CultureInfo.InvariantCulture)), ("$x", text));
+            r.IsDBNull(5) ? null : TimeSpan.ParseExact(r.GetString(5), "hh\\:mm", CultureInfo.InvariantCulture), r.IsDBNull(6) ? null : r.GetInt64(6)));
+    public long AddDayNote(DateTime day, TimeSpan? at, string text, TimeSpan? end = null, long? seriesId = null)
+        => database.Insert("INSERT INTO day_notes (day, at_time, text, end_time, series_id) VALUES ($d, $t, $x, $e, $s)", ("$s", seriesId), ("$e", end?.ToString("hh\\:mm", CultureInfo.InvariantCulture)), ("$d", day.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture)), ("$t", at?.ToString("hh\\:mm", CultureInfo.InvariantCulture)), ("$x", text));
     public void UpdateDayNote(DayNote note)
-        => database.Execute("UPDATE day_notes SET day = $d, at_time = $t, text = $x, done = $n, end_time = $e WHERE id = $i", ("$e", note.End?.ToString("hh\\:mm", CultureInfo.InvariantCulture)), ("$d", note.Day.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture)),
+        => database.Execute("UPDATE day_notes SET day = $d, at_time = $t, text = $x, done = $n, end_time = $e, series_id = $s WHERE id = $i", ("$s", note.SeriesId), ("$e", note.End?.ToString("hh\\:mm", CultureInfo.InvariantCulture)), ("$d", note.Day.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture)),
             ("$t", note.At?.ToString("hh\\:mm", CultureInfo.InvariantCulture)), ("$x", note.Text), ("$n", note.Done ? 1 : 0), ("$i", note.Id));
+    // ---- Repeating notes. A series holds the template; its notes are made ahead by the app and are ordinary notes that carry the series' id. ----
+    private static string Time(TimeSpan? time) => time?.ToString("hh\\:mm", CultureInfo.InvariantCulture) ?? "";
+    private static string DayText(DateTime day) => day.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);
+    public List<NoteSeries> LoadSeries() => database.Query("SELECT id, rule, start_day, generated_to, text, at_time, end_time FROM note_series ORDER BY id",
+        r => new NoteSeries(r.GetInt64(0), Recurrence.FromRule(r.GetString(1)) ?? new Recurrence(1, 0), DateTime.ParseExact(r.GetString(2), "yyyy-MM-dd", CultureInfo.InvariantCulture),
+            DateTime.ParseExact(r.GetString(3), "yyyy-MM-dd", CultureInfo.InvariantCulture), r.GetString(4),
+            r.IsDBNull(5) ? null : TimeSpan.ParseExact(r.GetString(5), "hh\\:mm", CultureInfo.InvariantCulture), r.IsDBNull(6) ? null : TimeSpan.ParseExact(r.GetString(6), "hh\\:mm", CultureInfo.InvariantCulture)));
+    public long AddSeries(NoteSeries series)
+        => database.Insert("INSERT INTO note_series (rule, start_day, generated_to, text, at_time, end_time) VALUES ($r, $s, $g, $x, $t, $e)", ("$r", series.Rule.ToRule()), ("$s", DayText(series.Start)),
+            ("$g", DayText(series.GeneratedTo)), ("$x", series.Text), ("$t", series.At is null ? null : Time(series.At)), ("$e", series.End is null ? null : Time(series.End)));
+    public void UpdateSeries(NoteSeries series)
+        => database.Execute("UPDATE note_series SET rule = $r, start_day = $s, generated_to = $g, text = $x, at_time = $t, end_time = $e WHERE id = $i", ("$r", series.Rule.ToRule()), ("$s", DayText(series.Start)),
+            ("$g", DayText(series.GeneratedTo)), ("$x", series.Text), ("$t", series.At is null ? null : Time(series.At)), ("$e", series.End is null ? null : Time(series.End)), ("$i", series.Id));
+    /// <summary>Removes a series. Its notes stay as ordinary notes.</summary>
+    public void DeleteSeries(long id)
+    {
+        database.Execute("UPDATE day_notes SET series_id = NULL WHERE series_id = $i", ("$i", id));
+        database.Execute("DELETE FROM note_series WHERE id = $i", ("$i", id));
+    }
     public void DeleteDayNote(long id) => database.Execute("DELETE FROM day_notes WHERE id = $i", ("$i", id));
 
     /// <summary>The sections of the settings file the library reads and writes itself. Every other section is the app's.</summary>

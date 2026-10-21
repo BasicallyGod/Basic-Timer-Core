@@ -39,6 +39,65 @@ public sealed class ShorthandTests
     public void ClearingAMeetingsTimePutsTheWholeRangeBackIntoTheWords()
         => Assert.Equal("14:00 - 15:30 Client call", NoteShorthand.WithTimeInWords("Client call", new TimeSpan(14, 0, 0), new TimeSpan(15, 30, 0)));
 
+    [Theory]
+    [InlineData("Standup every weekday", "Standup", Recurrence.Weekdays, 1)]
+    [InlineData("Standup every day", "Standup", Recurrence.AllDays, 1)]
+    [InlineData("Team call every mon", "Team call", 1 << 1, 1)]
+    [InlineData("Gym every mon,wed,fri", "Gym", (1 << 1) | (1 << 3) | (1 << 5), 1)]
+    [InlineData("Review every week", "Review", 0, 1)]
+    [InlineData("Review every 2 weeks", "Review", 0, 2)]
+    [InlineData("every 2 weeks fri Review", "Review", 1 << 5, 2)]
+    public void AnEveryPhraseMakesANoteRepeatAndLeavesTheOtherWords(string typed, string words, int mask, int weeks)
+    {
+        var parts = NoteShorthand.Parse(typed, Today);
+        Assert.Equal(words, parts.Text); Assert.Equal(new Recurrence(weeks, mask), parts.Repeat);
+    }
+
+    [Fact]
+    public void ARepeatKeepsItsTimeRangeAndItsEndDay()
+    {
+        var parts = NoteShorthand.Parse("Standup 09:30 - 10:00 every weekday until 2026-12-18", Today);
+        Assert.Equal("Standup", parts.Text); Assert.Equal(new TimeSpan(9, 30, 0), parts.At); Assert.Equal(new TimeSpan(10, 0, 0), parts.End);
+        Assert.Equal(new Recurrence(1, Recurrence.Weekdays, new DateTime(2026, 12, 18)), parts.Repeat);
+    }
+
+    [Theory]
+    [InlineData("Daily report to Sam")]            // Only a phrase starting with "every" repeats, so a word in a sentence never does.
+    [InlineData("every time we meet")]
+    [InlineData("every 1 weeks")]
+    [InlineData("every")]
+    [InlineData("every weekday")]                   // Only the phrase: it stays as the words.
+    public void OrdinaryWordsAreNotARepeat(string typed) => Assert.Null(NoteShorthand.Parse(typed, Today).Repeat);
+
+    [Fact]
+    public void ARuleKnowsItsOccurrencesAndSurvivesBeingWrittenDown()
+    {
+        var start = new DateTime(2026, 10, 14); // A Wednesday.
+        var weekdays = new Recurrence(1, Recurrence.Weekdays);
+        Assert.Equal(new[] { 14, 15, 16, 19, 20 }, weekdays.Between(start, start, new DateTime(2026, 10, 20)).Select(d => d.Day));
+        var fortnightly = new Recurrence(2, 0); // Same weekday as the start, every second week.
+        Assert.Equal(new[] { new DateTime(2026, 10, 14), new DateTime(2026, 10, 28), new DateTime(2026, 11, 11) }, fortnightly.Between(start, start, new DateTime(2026, 11, 15)));
+        Assert.Empty(new Recurrence(1, Recurrence.Weekdays, new DateTime(2026, 10, 13)).Between(start, start, new DateTime(2026, 10, 30))); // Ended before it began.
+        foreach (var rule in new[] { weekdays, fortnightly, new Recurrence(3, (1 << 1) | (1 << 4), new DateTime(2027, 1, 1)) })
+        {
+            Assert.Equal(rule, Recurrence.FromRule(rule.ToRule()));
+            Assert.Equal(rule, NoteShorthand.Parse("x " + rule.Typed(), Today).Repeat); // What is typed back into the words reads as the same rule.
+        }
+        Assert.Equal("Every weekday", weekdays.Words()); Assert.Equal("Every 2 weeks", fortnightly.Words());
+    }
+
+    [Fact]
+    public void ASeriesOnlyMakesNotesFromTodayAndNeverAgainForADayAlreadyMade()
+    {
+        var series = new NoteSeries(1, new Recurrence(1, Recurrence.Weekdays), new DateTime(2026, 10, 1), new DateTime(2026, 10, 1).AddDays(-1), "Standup", null, null);
+        var today = new DateTime(2026, 10, 14);
+        var days = series.Pending(today, 7);
+        Assert.Equal(new DateTime(2026, 10, 14), days[0]); Assert.Equal(new DateTime(2026, 10, 21), days[^1]); // Nothing before today, and a week ahead.
+        var later = series with { GeneratedTo = days[^1] };
+        Assert.Empty(later.Pending(today, 7));                                  // Already made, so a removed one is not made again.
+        Assert.Equal(new[] { 22 }, later.Pending(today.AddDays(1), 7).Select(d => d.Day)); // A day on, one more day comes into reach.
+    }
+
     [Fact]
     public void DaysUnderstandTomorrowWeekdaysAndDates()
     {
