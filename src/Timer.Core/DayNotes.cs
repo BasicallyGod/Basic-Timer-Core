@@ -4,7 +4,7 @@ using System.Text.RegularExpressions;
 namespace Timer.Core;
 
 /// <summary>A note on a day, with an optional time. Notes with a date feed Coming up, and later the timeline. A note with a time and an end (14:00 - 15:30) is a meeting: planned time, not tracked time.</summary>
-public sealed record DayNote(long Id, DateTime Day, TimeSpan? At, string Text, bool Done = false, TimeSpan? End = null);
+public sealed record DayNote(long Id, DateTime Day, TimeSpan? At, string Text, bool Done = false, TimeSpan? End = null, long? SeriesId = null);
 
 public static class DayNotes
 {

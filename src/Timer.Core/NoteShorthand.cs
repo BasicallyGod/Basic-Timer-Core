@@ -4,7 +4,7 @@ using System.Text.RegularExpressions;
 namespace Timer.Core;
 
 /// <summary>What was recognised in a typed note: its words, and a time and a day when the words named them.</summary>
-public sealed record NoteParts(string Text, TimeSpan? At, DateTime? Day, TimeSpan? End = null);
+public sealed record NoteParts(string Text, TimeSpan? At, DateTime? Day, TimeSpan? End = null, Recurrence? Repeat = null);
 
 /// <summary>
 /// The note shorthand in one place. A time such as 14:30 (or @14:30) sets the time. A word starting with @ sets the day: @today, @tomorrow, a weekday
@@ -32,6 +32,8 @@ public static class NoteShorthand
         }
         // Typed into the To-do list a note is a task: a time-like word stays a word and a leading ! is dropped, so what was typed there stays there.
         if (task) { var plain = rest.Trim().TrimStart('!', ' '); return new NoteParts(plain.Length == 0 ? rest.Trim() : plain, null, day); }
+        var repeat = Recurrence.Extract(rest, today, out var withoutRepeat);
+        if (repeat is not null && withoutRepeat.Trim().Length > 0) rest = withoutRepeat; else repeat = null; // A note that was only the phrase keeps it as its words.
         if (Range.Match(rest) is { Success: true } range)
         {
             var start = new TimeSpan(int.Parse(range.Groups[1].Value, CultureInfo.InvariantCulture), int.Parse(range.Groups[2].Value, CultureInfo.InvariantCulture), 0);
@@ -39,11 +41,11 @@ public static class NoteShorthand
             if (end > start) // An end before the start is not a range (no overnight meetings), so those words fall through as they always did.
             {
                 var words = Regex.Replace(rest.Remove(range.Index, range.Length).Trim(), @"\s{2,}", " ");
-                return new NoteParts(words.Length == 0 ? rest.Trim() : words, start, day, end);
+                return new NoteParts(words.Length == 0 ? rest.Trim() : words, start, day, end, repeat);
             }
         }
         var (text, at) = DayNotes.Parse(rest);
-        return new NoteParts(text, at, day);
+        return new NoteParts(text, at, day, null, repeat);
     }
 
     /// <summary>The day a word after @ stands for, or null when it is not one.</summary>

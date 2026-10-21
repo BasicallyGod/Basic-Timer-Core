@@ -38,6 +38,36 @@ public sealed class SharedTests
         finally { try { Directory.Delete(folder, true); } catch (IOException) { } }
     }
 
+    // A repeating series and the notes that carry its id come back after a reopen, and removing the series frees its notes.
+    [Fact]
+    public void ASeriesAndItsNotesSurviveAReopenAndRemovingTheSeriesKeepsTheNotes()
+    {
+        var folder = Path.Combine(Path.GetTempPath(), "timer-shared-" + Guid.NewGuid());
+        try
+        {
+            var start = new DateTime(2026, 10, 19); long id;
+            using (var store = new TimerStore(folder))
+            {
+                id = store.AddSeries(new NoteSeries(0, new Recurrence(1, Recurrence.Weekdays, new DateTime(2026, 12, 18)), start, start.AddDays(56), "Standup", new TimeSpan(9, 30, 0), new TimeSpan(10, 0, 0)));
+                store.AddDayNote(start, new TimeSpan(9, 30, 0), "Standup", new TimeSpan(10, 0, 0), id);
+            }
+            using (var store = new TimerStore(folder))
+            {
+                var series = Assert.Single(store.LoadSeries());
+                Assert.Equal(id, series.Id); Assert.Equal(new Recurrence(1, Recurrence.Weekdays, new DateTime(2026, 12, 18)), series.Rule); Assert.Equal(start.AddDays(56), series.GeneratedTo);
+                Assert.Equal(new TimeSpan(10, 0, 0), series.End); Assert.Equal("Standup", series.Text);
+                Assert.Equal(id, Assert.Single(store.LoadDayNotes()).SeriesId);
+                store.UpdateSeries(series with { GeneratedTo = start.AddDays(70) });
+                store.DeleteSeries(id);
+            }
+            using (var store = new TimerStore(folder))
+            {
+                Assert.Empty(store.LoadSeries()); Assert.Null(Assert.Single(store.LoadDayNotes()).SeriesId);
+            }
+        }
+        finally { try { Directory.Delete(folder, true); } catch (IOException) { } }
+    }
+
     // Every format after the first has exactly one upgrade step, or an old file could not be taken forward.
     [Fact]
     public void EveryFormatHasItsUpgradeStep() => Assert.Equal(TimerDatabase.SchemaVersion - 1, TimerDatabase.Upgrades.Count);

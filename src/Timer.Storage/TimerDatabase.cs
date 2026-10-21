@@ -16,7 +16,7 @@ public sealed class DatabaseTooNewException : IOException
 // change either lands whole or not at all.
 public sealed class TimerDatabase : IDisposable
 {
-    public const int SchemaVersion = 4;
+    public const int SchemaVersion = 5;
     public const string FileName = "timer.db";
     public const int DailyCopiesKept = 14;
     // Numbered upgrades from one format to the next: entry 0 takes the data from format 1 to 2, entry 1 from 2 to 3, and so on. A build that adds a table
@@ -44,6 +44,16 @@ public sealed class TimerDatabase : IDisposable
             at_time TEXT,
             text TEXT NOT NULL CHECK (length(text) > 0),
             done INTEGER NOT NULL DEFAULT 0 CHECK (done IN (0, 1)),
+            end_time TEXT,
+            series_id INTEGER)";
+    // A repeating note's template and how far its notes were made (format 5). The notes are ordinary day_notes rows that carry its id in series_id.
+    public const string NoteSeriesTable = @"CREATE TABLE note_series (
+            id INTEGER PRIMARY KEY,
+            rule TEXT NOT NULL,
+            start_day TEXT NOT NULL,
+            generated_to TEXT NOT NULL,
+            text TEXT NOT NULL CHECK (length(text) > 0),
+            at_time TEXT,
             end_time TEXT)";
     public const string DayNotesIndex = "CREATE INDEX day_notes_by_day ON day_notes(day)";
     public static readonly IReadOnlyList<string> Upgrades = new[]
@@ -54,7 +64,9 @@ public sealed class TimerDatabase : IDisposable
         // Format 3 adds notes on a day, with an optional time. Nothing existing is touched.
         DayNotesTableV3 + "; " + DayNotesIndex,
         // Format 4 gives a note an optional end time, which makes a timed note a meeting. Existing notes keep none.
-        "ALTER TABLE day_notes ADD COLUMN end_time TEXT"
+        "ALTER TABLE day_notes ADD COLUMN end_time TEXT",
+        // Format 5 lets a note repeat: a series table, and the series each note belongs to. Existing notes belong to none.
+        "ALTER TABLE day_notes ADD COLUMN series_id INTEGER; " + NoteSeriesTable
     };
 
     private readonly SqliteConnection connection;
@@ -230,6 +242,7 @@ public sealed class TimerDatabase : IDisposable
         "CREATE INDEX entries_by_account ON entries(account_id, day)",
         DayNotesTable,
         DayNotesIndex,
+        NoteSeriesTable,
         @"CREATE TABLE away (
             id INTEGER PRIMARY KEY,
             start_at TEXT NOT NULL,
