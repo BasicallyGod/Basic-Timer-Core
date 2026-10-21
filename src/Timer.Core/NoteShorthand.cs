@@ -4,7 +4,7 @@ using System.Text.RegularExpressions;
 namespace Timer.Core;
 
 /// <summary>What was recognised in a typed note: its words, and a time and a day when the words named them.</summary>
-public sealed record NoteParts(string Text, TimeSpan? At, DateTime? Day);
+public sealed record NoteParts(string Text, TimeSpan? At, DateTime? Day, TimeSpan? End = null);
 
 /// <summary>
 /// The note shorthand in one place. A time such as 14:30 (or @14:30) sets the time. A word starting with @ sets the day: @today, @tomorrow, a weekday
@@ -15,6 +15,8 @@ public sealed record NoteParts(string Text, TimeSpan? At, DateTime? Day);
 public static class NoteShorthand
 {
     private static readonly Regex Day = new(@"(?:^|\s)@([A-Za-z]+|\d{1,2}-?[A-Za-z]{3,9}|\d{4}-\d{2}-\d{2})(?=\s|$)", RegexOptions.Compiled);
+    // A start and a later end written 14:00 - 15:30 (a hyphen or dash, spaces optional) make a meeting.
+    private static readonly Regex Range = new(@"(?:^|\s)@?([01]?\d|2[0-3]):([0-5]\d)\s*[-\u2013\u2014]\s*@?([01]?\d|2[0-3]):([0-5]\d)(?=\s|$)", RegexOptions.Compiled);
     private static readonly string[] Months = { "jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec" };
 
     /// <summary>Splits typed words into the note's text, its time and the day it names, if any. Today decides what tomorrow and the weekdays mean.</summary>
@@ -30,6 +32,16 @@ public static class NoteShorthand
         }
         // Typed into the To-do list a note is a task: a time-like word stays a word and a leading ! is dropped, so what was typed there stays there.
         if (task) { var plain = rest.Trim().TrimStart('!', ' '); return new NoteParts(plain.Length == 0 ? rest.Trim() : plain, null, day); }
+        if (Range.Match(rest) is { Success: true } range)
+        {
+            var start = new TimeSpan(int.Parse(range.Groups[1].Value, CultureInfo.InvariantCulture), int.Parse(range.Groups[2].Value, CultureInfo.InvariantCulture), 0);
+            var end = new TimeSpan(int.Parse(range.Groups[3].Value, CultureInfo.InvariantCulture), int.Parse(range.Groups[4].Value, CultureInfo.InvariantCulture), 0);
+            if (end > start) // An end before the start is not a range (no overnight meetings), so those words fall through as they always did.
+            {
+                var words = Regex.Replace(rest.Remove(range.Index, range.Length).Trim(), @"\s{2,}", " ");
+                return new NoteParts(words.Length == 0 ? rest.Trim() : words, start, day, end);
+            }
+        }
         var (text, at) = DayNotes.Parse(rest);
         return new NoteParts(text, at, day);
     }
@@ -82,9 +94,10 @@ public static class NoteShorthand
     // ---- Taking recognised parts back out. Each puts the words back, so nothing typed is lost. ----
 
     /// <summary>The words with a time they no longer carry written back at the front.</summary>
-    public static string WithTimeInWords(string text, TimeSpan at)
+    public static string WithTimeInWords(string text, TimeSpan at, TimeSpan? end = null)
     {
         var time = at.ToString(@"hh\:mm", CultureInfo.InvariantCulture);
+        if (end is { } until) time += " - " + until.ToString(@"hh\:mm", CultureInfo.InvariantCulture);
         // A deadline marker has to stay first, or putting the time back would quietly make the note an ordinary one.
         return text.StartsWith('!') ? "! " + time + " " + text.TrimStart('!', ' ') : time + " " + text;
     }

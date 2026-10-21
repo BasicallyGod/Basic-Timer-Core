@@ -74,13 +74,14 @@ public sealed class TimerStore : IDisposable
     private string? Meta(string key) => database.Scalar("SELECT value FROM meta WHERE key = $k", ("$k", key)) as string;
 
     // ---- Notes on a day. They are small and edited one at a time, so each change is its own statement, outside the undo history. ----
-    public List<DayNote> LoadDayNotes() => database.Query("SELECT id, day, at_time, text, done FROM day_notes ORDER BY day, at_time, id",
+    public List<DayNote> LoadDayNotes() => database.Query("SELECT id, day, at_time, text, done, end_time FROM day_notes ORDER BY day, at_time, id",
         r => new DayNote(r.GetInt64(0), DateTime.ParseExact(r.GetString(1), "yyyy-MM-dd", CultureInfo.InvariantCulture),
-            r.IsDBNull(2) ? null : TimeSpan.ParseExact(r.GetString(2), "hh\\:mm", CultureInfo.InvariantCulture), r.GetString(3), r.GetInt64(4) == 1));
-    public long AddDayNote(DateTime day, TimeSpan? at, string text)
-        => database.Insert("INSERT INTO day_notes (day, at_time, text) VALUES ($d, $t, $x)", ("$d", day.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture)), ("$t", at?.ToString("hh\\:mm", CultureInfo.InvariantCulture)), ("$x", text));
+            r.IsDBNull(2) ? null : TimeSpan.ParseExact(r.GetString(2), "hh\\:mm", CultureInfo.InvariantCulture), r.GetString(3), r.GetInt64(4) == 1,
+            r.IsDBNull(5) ? null : TimeSpan.ParseExact(r.GetString(5), "hh\\:mm", CultureInfo.InvariantCulture)));
+    public long AddDayNote(DateTime day, TimeSpan? at, string text, TimeSpan? end = null)
+        => database.Insert("INSERT INTO day_notes (day, at_time, text, end_time) VALUES ($d, $t, $x, $e)", ("$e", end?.ToString("hh\\:mm", CultureInfo.InvariantCulture)), ("$d", day.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture)), ("$t", at?.ToString("hh\\:mm", CultureInfo.InvariantCulture)), ("$x", text));
     public void UpdateDayNote(DayNote note)
-        => database.Execute("UPDATE day_notes SET day = $d, at_time = $t, text = $x, done = $n WHERE id = $i", ("$d", note.Day.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture)),
+        => database.Execute("UPDATE day_notes SET day = $d, at_time = $t, text = $x, done = $n, end_time = $e WHERE id = $i", ("$e", note.End?.ToString("hh\\:mm", CultureInfo.InvariantCulture)), ("$d", note.Day.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture)),
             ("$t", note.At?.ToString("hh\\:mm", CultureInfo.InvariantCulture)), ("$x", note.Text), ("$n", note.Done ? 1 : 0), ("$i", note.Id));
     public void DeleteDayNote(long id) => database.Execute("DELETE FROM day_notes WHERE id = $i", ("$i", id));
 
