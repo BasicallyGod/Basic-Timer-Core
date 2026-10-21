@@ -16,7 +16,7 @@ public sealed class DatabaseTooNewException : IOException
 // change either lands whole or not at all.
 public sealed class TimerDatabase : IDisposable
 {
-    public const int SchemaVersion = 5;
+    public const int SchemaVersion = 6;
     public const string FileName = "timer.db";
     public const int DailyCopiesKept = 14;
     // Numbered upgrades from one format to the next: entry 0 takes the data from format 1 to 2, entry 1 from 2 to 3, and so on. A build that adds a table
@@ -45,9 +45,11 @@ public sealed class TimerDatabase : IDisposable
             text TEXT NOT NULL CHECK (length(text) > 0),
             done INTEGER NOT NULL DEFAULT 0 CHECK (done IN (0, 1)),
             end_time TEXT,
-            series_id INTEGER)";
+            series_id INTEGER,
+            kind INTEGER CHECK (kind IN (0, 1, 2)),
+            has_date INTEGER NOT NULL DEFAULT 1 CHECK (has_date IN (0, 1)))";
     // A repeating note's template and how far its notes were made (format 5). The notes are ordinary day_notes rows that carry its id in series_id.
-    public const string NoteSeriesTable = @"CREATE TABLE note_series (
+    private const string NoteSeriesTableV5 = @"CREATE TABLE note_series (
             id INTEGER PRIMARY KEY,
             rule TEXT NOT NULL,
             start_day TEXT NOT NULL,
@@ -55,6 +57,15 @@ public sealed class TimerDatabase : IDisposable
             text TEXT NOT NULL CHECK (length(text) > 0),
             at_time TEXT,
             end_time TEXT)";
+    public const string NoteSeriesTable = @"CREATE TABLE note_series (
+            id INTEGER PRIMARY KEY,
+            rule TEXT NOT NULL,
+            start_day TEXT NOT NULL,
+            generated_to TEXT NOT NULL,
+            text TEXT NOT NULL CHECK (length(text) > 0),
+            at_time TEXT,
+            end_time TEXT,
+            kind INTEGER CHECK (kind IN (0, 1, 2)))";
     public const string DayNotesIndex = "CREATE INDEX day_notes_by_day ON day_notes(day)";
     public static readonly IReadOnlyList<string> Upgrades = new[]
     {
@@ -66,7 +77,11 @@ public sealed class TimerDatabase : IDisposable
         // Format 4 gives a note an optional end time, which makes a timed note a meeting. Existing notes keep none.
         "ALTER TABLE day_notes ADD COLUMN end_time TEXT",
         // Format 5 lets a note repeat: a series table, and the series each note belongs to. Existing notes belong to none.
-        "ALTER TABLE day_notes ADD COLUMN series_id INTEGER; " + NoteSeriesTable
+        "ALTER TABLE day_notes ADD COLUMN series_id INTEGER; " + NoteSeriesTableV5,
+        // Format 6 separates type from schedule. Null kinds and dated flags preserve all existing notes and series.
+        "ALTER TABLE day_notes ADD COLUMN kind INTEGER CHECK (kind IN (0, 1, 2)); "
+        + "ALTER TABLE day_notes ADD COLUMN has_date INTEGER NOT NULL DEFAULT 1 CHECK (has_date IN (0, 1)); "
+        + "ALTER TABLE note_series ADD COLUMN kind INTEGER CHECK (kind IN (0, 1, 2))"
     };
 
     private readonly SqliteConnection connection;

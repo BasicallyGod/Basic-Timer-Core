@@ -74,28 +74,44 @@ public sealed class TimerStore : IDisposable
     private string? Meta(string key) => database.Scalar("SELECT value FROM meta WHERE key = $k", ("$k", key)) as string;
 
     // ---- Notes on a day. They are small and edited one at a time, so each change is its own statement, outside the undo history. ----
-    public List<DayNote> LoadDayNotes() => database.Query("SELECT id, day, at_time, text, done, end_time, series_id FROM day_notes ORDER BY day, at_time, id",
+    public List<DayNote> LoadDayNotes() => database.Query("SELECT id, day, at_time, text, done, end_time, series_id, kind, has_date FROM day_notes ORDER BY day, at_time, id",
         r => new DayNote(r.GetInt64(0), DateTime.ParseExact(r.GetString(1), "yyyy-MM-dd", CultureInfo.InvariantCulture),
-            r.IsDBNull(2) ? null : TimeSpan.ParseExact(r.GetString(2), "hh\\:mm", CultureInfo.InvariantCulture), r.GetString(3), r.GetInt64(4) == 1,
-            r.IsDBNull(5) ? null : TimeSpan.ParseExact(r.GetString(5), "hh\\:mm", CultureInfo.InvariantCulture), r.IsDBNull(6) ? null : r.GetInt64(6)));
-    public long AddDayNote(DateTime day, TimeSpan? at, string text, TimeSpan? end = null, long? seriesId = null)
-        => database.Insert("INSERT INTO day_notes (day, at_time, text, end_time, series_id) VALUES ($d, $t, $x, $e, $s)", ("$s", seriesId), ("$e", end?.ToString("hh\\:mm", CultureInfo.InvariantCulture)), ("$d", day.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture)), ("$t", at?.ToString("hh\\:mm", CultureInfo.InvariantCulture)), ("$x", text));
+            r.IsDBNull(2) ? null : TimeSpan.ParseExact(r.GetString(2), @"hh\:mm", CultureInfo.InvariantCulture), r.GetString(3), r.GetInt64(4) == 1,
+            r.IsDBNull(5) ? null : TimeSpan.ParseExact(r.GetString(5), @"hh\:mm", CultureInfo.InvariantCulture), r.IsDBNull(6) ? null : r.GetInt64(6),
+            r.IsDBNull(7) ? null : (DayNoteKind)r.GetInt32(7), r.GetInt64(8) == 1));
+    public long AddDayNote(DateTime day, TimeSpan? at, string text, TimeSpan? end = null, long? seriesId = null, DayNoteKind? kind = null, bool hasDate = true)
+    {
+        DayNotes.Validate(new DayNote(0, day, at, text, End: end, SeriesId: seriesId, Kind: kind, HasDate: hasDate));
+        return database.Insert("INSERT INTO day_notes (day, at_time, text, end_time, series_id, kind, has_date) VALUES ($d, $t, $x, $e, $s, $k, $h)",
+            ("$d", DayText(day)), ("$t", at is null ? null : Time(at)), ("$x", text), ("$e", end is null ? null : Time(end)), ("$s", seriesId), ("$k", (int?)kind), ("$h", hasDate ? 1 : 0));
+    }
     public void UpdateDayNote(DayNote note)
-        => database.Execute("UPDATE day_notes SET day = $d, at_time = $t, text = $x, done = $n, end_time = $e, series_id = $s WHERE id = $i", ("$s", note.SeriesId), ("$e", note.End?.ToString("hh\\:mm", CultureInfo.InvariantCulture)), ("$d", note.Day.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture)),
-            ("$t", note.At?.ToString("hh\\:mm", CultureInfo.InvariantCulture)), ("$x", note.Text), ("$n", note.Done ? 1 : 0), ("$i", note.Id));
-    // ---- Repeating notes. A series holds the template; its notes are made ahead by the app and are ordinary notes that carry the series' id. ----
-    private static string Time(TimeSpan? time) => time?.ToString("hh\\:mm", CultureInfo.InvariantCulture) ?? "";
+    {
+        DayNotes.Validate(note);
+        database.Execute("UPDATE day_notes SET day = $d, at_time = $t, text = $x, done = $n, end_time = $e, series_id = $s, kind = $k, has_date = $h WHERE id = $i",
+            ("$d", DayText(note.Day)), ("$t", note.At is null ? null : Time(note.At)), ("$x", note.Text), ("$n", note.Done ? 1 : 0), ("$e", note.End is null ? null : Time(note.End)),
+            ("$s", note.SeriesId), ("$k", (int?)note.Kind), ("$h", note.HasDate ? 1 : 0), ("$i", note.Id));
+    }
+    // ---- Repeating notes. The type is part of the template, so a timed task stays a task across occurrences. ----
+    private static string Time(TimeSpan? time) => time?.ToString(@"hh\:mm", CultureInfo.InvariantCulture) ?? "";
     private static string DayText(DateTime day) => day.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);
-    public List<NoteSeries> LoadSeries() => database.Query("SELECT id, rule, start_day, generated_to, text, at_time, end_time FROM note_series ORDER BY id",
+    public List<NoteSeries> LoadSeries() => database.Query("SELECT id, rule, start_day, generated_to, text, at_time, end_time, kind FROM note_series ORDER BY id",
         r => new NoteSeries(r.GetInt64(0), Recurrence.FromRule(r.GetString(1)) ?? new Recurrence(1, 0), DateTime.ParseExact(r.GetString(2), "yyyy-MM-dd", CultureInfo.InvariantCulture),
             DateTime.ParseExact(r.GetString(3), "yyyy-MM-dd", CultureInfo.InvariantCulture), r.GetString(4),
-            r.IsDBNull(5) ? null : TimeSpan.ParseExact(r.GetString(5), "hh\\:mm", CultureInfo.InvariantCulture), r.IsDBNull(6) ? null : TimeSpan.ParseExact(r.GetString(6), "hh\\:mm", CultureInfo.InvariantCulture)));
+            r.IsDBNull(5) ? null : TimeSpan.ParseExact(r.GetString(5), @"hh\:mm", CultureInfo.InvariantCulture), r.IsDBNull(6) ? null : TimeSpan.ParseExact(r.GetString(6), @"hh\:mm", CultureInfo.InvariantCulture),
+            r.IsDBNull(7) ? null : (DayNoteKind)r.GetInt32(7)));
     public long AddSeries(NoteSeries series)
-        => database.Insert("INSERT INTO note_series (rule, start_day, generated_to, text, at_time, end_time) VALUES ($r, $s, $g, $x, $t, $e)", ("$r", series.Rule.ToRule()), ("$s", DayText(series.Start)),
-            ("$g", DayText(series.GeneratedTo)), ("$x", series.Text), ("$t", series.At is null ? null : Time(series.At)), ("$e", series.End is null ? null : Time(series.End)));
+    {
+        DayNotes.Validate(new DayNote(0, series.Start, series.At, series.Text, End: series.End, Kind: series.Kind));
+        return database.Insert("INSERT INTO note_series (rule, start_day, generated_to, text, at_time, end_time, kind) VALUES ($r, $s, $g, $x, $t, $e, $k)",
+            ("$r", series.Rule.ToRule()), ("$s", DayText(series.Start)), ("$g", DayText(series.GeneratedTo)), ("$x", series.Text), ("$t", series.At is null ? null : Time(series.At)), ("$e", series.End is null ? null : Time(series.End)), ("$k", (int?)series.Kind));
+    }
     public void UpdateSeries(NoteSeries series)
-        => database.Execute("UPDATE note_series SET rule = $r, start_day = $s, generated_to = $g, text = $x, at_time = $t, end_time = $e WHERE id = $i", ("$r", series.Rule.ToRule()), ("$s", DayText(series.Start)),
-            ("$g", DayText(series.GeneratedTo)), ("$x", series.Text), ("$t", series.At is null ? null : Time(series.At)), ("$e", series.End is null ? null : Time(series.End)), ("$i", series.Id));
+    {
+        DayNotes.Validate(new DayNote(0, series.Start, series.At, series.Text, End: series.End, Kind: series.Kind));
+        database.Execute("UPDATE note_series SET rule = $r, start_day = $s, generated_to = $g, text = $x, at_time = $t, end_time = $e, kind = $k WHERE id = $i",
+            ("$r", series.Rule.ToRule()), ("$s", DayText(series.Start)), ("$g", DayText(series.GeneratedTo)), ("$x", series.Text), ("$t", series.At is null ? null : Time(series.At)), ("$e", series.End is null ? null : Time(series.End)), ("$k", (int?)series.Kind), ("$i", series.Id));
+    }
     /// <summary>Removes a series. Its notes stay as ordinary notes.</summary>
     public void DeleteSeries(long id)
     {

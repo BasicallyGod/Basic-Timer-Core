@@ -127,7 +127,7 @@ public sealed record Recurrence(int EveryWeeks, int DaysMask, DateTime? Until = 
 /// A repeating note's template and how far its notes have been made. The notes themselves are ordinary dated notes that carry <see cref="Id"/>, so each can be
 /// moved, ticked or removed alone; <see cref="GeneratedTo"/> is the last day notes were made for, so a note removed from the series is not made again.
 /// </summary>
-public sealed record NoteSeries(long Id, Recurrence Rule, DateTime Start, DateTime GeneratedTo, string Text, TimeSpan? At, TimeSpan? End)
+public sealed record NoteSeries(long Id, Recurrence Rule, DateTime Start, DateTime GeneratedTo, string Text, TimeSpan? At, TimeSpan? End, DayNoteKind? Kind = null)
 {
     public const int HorizonDays = 56;
 
