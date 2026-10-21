@@ -3,8 +3,8 @@ using System.Text.RegularExpressions;
 
 namespace Timer.Core;
 
-/// <summary>A note on a day, with an optional time. Notes with a date feed Coming up, and later the timeline.</summary>
-public sealed record DayNote(long Id, DateTime Day, TimeSpan? At, string Text, bool Done = false);
+/// <summary>A note on a day, with an optional time. Notes with a date feed Coming up, and later the timeline. A note with a time and an end (14:00 - 15:30) is a meeting: planned time, not tracked time.</summary>
+public sealed record DayNote(long Id, DateTime Day, TimeSpan? At, string Text, bool Done = false, TimeSpan? End = null);
 
 public static class DayNotes
 {
@@ -27,6 +27,10 @@ public static class DayNotes
 
     /// <summary>A task is a note with no time that is not a deadline: the kind that is ticked off, and the one the To-do list holds.</summary>
     public static bool IsTask(DayNote note) => note.At is null && !IsDeadline(note);
+    /// <summary>A meeting is a note with both a start and a later end on the same day.</summary>
+    public static bool IsMeeting(DayNote note) => note.At is { } start && note.End is { } end && end > start;
+    /// <summary>When a meeting ends: its day at its end time, or null for a note that is not a meeting.</summary>
+    public static DateTime? EndsAt(DayNote note) => IsMeeting(note) ? note.Day.Date + note.End!.Value : null;
     /// <summary>
     /// The to-do list: tasks dated today or earlier that are still open, so one not finished carries over to the next day, plus the ones ticked off today.
     /// Tasks dated later wait in Coming up until their day.

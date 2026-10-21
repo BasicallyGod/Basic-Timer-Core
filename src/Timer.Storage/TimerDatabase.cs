@@ -16,7 +16,7 @@ public sealed class DatabaseTooNewException : IOException
 // change either lands whole or not at all.
 public sealed class TimerDatabase : IDisposable
 {
-    public const int SchemaVersion = 3;
+    public const int SchemaVersion = 4;
     public const string FileName = "timer.db";
     public const int DailyCopiesKept = 14;
     // Numbered upgrades from one format to the next: entry 0 takes the data from format 1 to 2, entry 1 from 2 to 3, and so on. A build that adds a table
@@ -31,12 +31,20 @@ public sealed class TimerDatabase : IDisposable
             hidden INTEGER NOT NULL DEFAULT 0 CHECK (hidden IN (0, 1)),
             budget_seconds INTEGER CHECK (budget_seconds IS NULL OR budget_seconds > 0),
             budget_period TEXT NOT NULL DEFAULT 'week' CHECK (budget_period IN ({(days ? "'day', " : "")}'week', 'month', 'quarter')))";
-    public const string DayNotesTable = @"CREATE TABLE day_notes (
+    // The notes table as format 3 made it, kept so an older file is taken forward step by step (format 4 then adds the end time).
+    private const string DayNotesTableV3 = @"CREATE TABLE day_notes (
             id INTEGER PRIMARY KEY,
             day TEXT NOT NULL,
             at_time TEXT,
             text TEXT NOT NULL CHECK (length(text) > 0),
             done INTEGER NOT NULL DEFAULT 0 CHECK (done IN (0, 1)))";
+    public const string DayNotesTable = @"CREATE TABLE day_notes (
+            id INTEGER PRIMARY KEY,
+            day TEXT NOT NULL,
+            at_time TEXT,
+            text TEXT NOT NULL CHECK (length(text) > 0),
+            done INTEGER NOT NULL DEFAULT 0 CHECK (done IN (0, 1)),
+            end_time TEXT)";
     public const string DayNotesIndex = "CREATE INDEX day_notes_by_day ON day_notes(day)";
     public static readonly IReadOnlyList<string> Upgrades = new[]
     {
@@ -44,7 +52,9 @@ public sealed class TimerDatabase : IDisposable
         + "INSERT INTO accounts_next (id, name, colour, position, hidden, budget_seconds, budget_period) SELECT id, name, colour, position, hidden, budget_seconds, budget_period FROM accounts; "
         + "DROP TABLE accounts; ALTER TABLE accounts_next RENAME TO accounts;",
         // Format 3 adds notes on a day, with an optional time. Nothing existing is touched.
-        DayNotesTable + "; " + DayNotesIndex
+        DayNotesTableV3 + "; " + DayNotesIndex,
+        // Format 4 gives a note an optional end time, which makes a timed note a meeting. Existing notes keep none.
+        "ALTER TABLE day_notes ADD COLUMN end_time TEXT"
     };
 
     private readonly SqliteConnection connection;

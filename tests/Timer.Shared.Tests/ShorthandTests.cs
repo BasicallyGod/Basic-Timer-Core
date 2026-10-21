@@ -15,6 +15,30 @@ public sealed class ShorthandTests
         Assert.Equal("call Sam", parts.Text); Assert.Equal(new TimeSpan(14, 30, 0), parts.At); Assert.Equal(new DateTime(2026, 10, 16), parts.Day);
     }
 
+    [Theory]
+    [InlineData("Client call 14:00 - 15:30", "Client call")]
+    [InlineData("14:00-15:30 Client call", "Client call")]
+    [InlineData("Client call 14:00 \u2013 15:30 #Acme", "Client call #Acme")]
+    public void ATimeRangeMakesAMeetingWithAStartAndAnEnd(string typed, string words)
+    {
+        var parts = NoteShorthand.Parse(typed, Today);
+        Assert.Equal(words, parts.Text); Assert.Equal(new TimeSpan(14, 0, 0), parts.At); Assert.Equal(new TimeSpan(15, 30, 0), parts.End);
+        Assert.True(DayNotes.IsMeeting(new DayNote(1, Today, parts.At, parts.Text, false, parts.End)));
+        Assert.Equal(Today.AddHours(15.5), DayNotes.EndsAt(new DayNote(1, Today, parts.At, parts.Text, false, parts.End)));
+    }
+
+    [Fact]
+    public void ARangeThatEndsBeforeItStartsIsNotAMeetingAndALoneTimeStaysATimedNote()
+    {
+        var backwards = NoteShorthand.Parse("call 15:30 - 14:00", Today); Assert.Null(backwards.End);
+        var lone = NoteShorthand.Parse("call Sam 14:30", Today); Assert.Null(lone.End); Assert.Equal(new TimeSpan(14, 30, 0), lone.At);
+        Assert.False(DayNotes.IsMeeting(new DayNote(1, Today, new TimeSpan(14, 0, 0), "x")));
+    }
+
+    [Fact]
+    public void ClearingAMeetingsTimePutsTheWholeRangeBackIntoTheWords()
+        => Assert.Equal("14:00 - 15:30 Client call", NoteShorthand.WithTimeInWords("Client call", new TimeSpan(14, 0, 0), new TimeSpan(15, 30, 0)));
+
     [Fact]
     public void DaysUnderstandTomorrowWeekdaysAndDates()
     {
