@@ -17,6 +17,8 @@ public sealed partial class LedgerEditor
     // Most recent step last. Each step stores only what its edit changed.
     private readonly List<UndoStep> history = new();
     private readonly Dictionary<UndoStep, int> stepBytes = new(ReferenceEqualityComparer.Instance);
+    // Steps taken back by Undo, most recent last, each stored as the edit that would put it back. They are kept in memory only, and any new edit ends them.
+    private readonly List<UndoStep> redo = new();
     public const int MaxUndoSteps = 50;
     // A few very large edits could still add up, so the saved history has a size limit as well.
     public const int MaxHistoryBytes = 2_000_000;
@@ -25,11 +27,17 @@ public sealed partial class LedgerEditor
     public int UndoCount => history.Count;
     public bool Changed { get; private set; }
     // Offered only while the ledger, notes, and groups still match what the last edit left behind.
-    public bool CanUndo => UndoState is { } u && engine.Sessions.Count >= u.AfterCount
-        && UndoMath.HashSessions(engine.Sessions, u.AfterCount) == u.AfterHash
-        && UndoMath.HashText(NotesCsv) == u.AfterNotesHash
-        && UndoMath.HashGroups(groups) == u.AfterGroupsHash;
+    public bool CanUndo => UndoState is { } u && Matches(u);
     public string? UndoLabel => CanUndo ? UndoState?.Description : null;
+    public UndoStep? RedoState => redo.LastOrDefault();
+    public int RedoCount => redo.Count;
+    // Offered only while the ledger, notes, and groups still match what the last Undo left behind.
+    public bool CanRedo => RedoState is { } r && Matches(r);
+    public string? RedoLabel => CanRedo ? RedoState?.Description : null;
+    private bool Matches(UndoStep step) => engine.Sessions.Count >= step.AfterCount
+        && UndoMath.HashSessions(engine.Sessions, step.AfterCount) == step.AfterHash
+        && UndoMath.HashText(NotesCsv) == step.AfterNotesHash
+        && UndoMath.HashGroups(groups) == step.AfterGroupsHash;
     public LedgerEditor(TrackingEngine engine, string[]? headers = null, IEnumerable<Dictionary<string, string>>? rows = null,
         string? notesCsv = null, string? groupsCsv = null, int maxHistoryBytes = MaxHistoryBytes, IEnumerable<UndoStep>? steps = null)
     {
@@ -138,6 +146,7 @@ public sealed partial class LedgerEditor
             table.Rows.RemoveAll(r => singletons.Contains(r["GroupId"]));
             groups = table.Serialize();
         }
+        redo.Clear(); // A new edit is a new line of history, so what was taken back can no longer be put back.
         if (history.Count > 0 && !LedgerMatches(history[^1], before)) history.Clear();
         var notesNow = NotesCsv;
         history.Add(new(description, engine.Sessions.Count, UndoMath.HashSessions(engine.Sessions, engine.Sessions.Count),
@@ -226,7 +235,7 @@ public sealed partial class LedgerEditor
                 groups = table.Serialize();
             }
         });
-        history.Clear(); stepBytes.Clear();
+        history.Clear(); redo.Clear(); stepBytes.Clear();
         return count;
     }
     /// <summary>
@@ -250,7 +259,7 @@ public sealed partial class LedgerEditor
                 groups = table.Serialize();
             }
         });
-        history.Clear(); stepBytes.Clear();
+        history.Clear(); redo.Clear(); stepBytes.Clear();
         return count;
     }
     /// <summary>Moves entries to another account, with their notes, as one edit. Times do not change, so nothing can overlap.</summary>
@@ -300,7 +309,22 @@ public sealed partial class LedgerEditor
     {
         if (!CanUndo) throw new InvalidOperationException("No matching edit is available to undo.");
         var undo = UndoState!;
+        var inverse = Apply(undo);
+        history.RemoveAt(history.Count - 1); redo.Add(inverse); TrimHistory(); Changed = true;
+    }
+    /// <summary>Puts back the edit that Undo last took back. Like Undo it is offered only while nothing else has changed since, and a new edit ends it.</summary>
+    public void Redo()
+    {
+        if (!CanRedo) throw new InvalidOperationException("No matching edit is available to redo.");
+        var again = RedoState!;
+        var inverse = Apply(again);
+        redo.RemoveAt(redo.Count - 1); history.Add(inverse); TrimHistory(); Changed = true;
+    }
+    // Reverts one step and returns the step that reverts that, so Undo and Redo are the same move in opposite directions.
+    private UndoStep Apply(UndoStep undo)
+    {
         var start = undo.Rows.Start; var after = start + undo.Rows.AfterLength;
+        var beforeRows = Rows(); var beforeNotes = NotesCsv; var beforeGroups = groups;
         // Rows the edit did not touch keep their objects. Only the changed stretch is rebuilt, and everything is
         // checked before anything is replaced, so a bad history leaves the ledger as it was.
         var restoredRows = new List<(SessionRow Row, Dictionary<string, string> Fields)>();
@@ -318,7 +342,11 @@ public sealed partial class LedgerEditor
         rows.AddRange(engine.Sessions.Skip(after).Take(undo.AfterCount - after));
         engine.Sessions.Clear(); engine.Sessions.AddRange(rows); engine.Sessions.AddRange(tail);
         notes = restoredNotes; groups = restoredGroups;
-        history.RemoveAt(history.Count - 1); TrimHistory(); Changed = true;
+        var notesNow = NotesCsv;
+        return new(undo.Description, engine.Sessions.Count, UndoMath.HashSessions(engine.Sessions, engine.Sessions.Count),
+            UndoMath.Diff(beforeRows, Rows(), UndoMath.SameFields),
+            UndoMath.DiffText(beforeNotes, notesNow), UndoMath.DiffText(beforeGroups, groups),
+            UndoMath.HashText(notesNow), UndoMath.HashGroups(groups));
     }
 }
 
