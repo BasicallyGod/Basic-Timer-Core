@@ -5,10 +5,12 @@ namespace Timer.Core;
 /// <summary>
 /// How often a note repeats: every N weeks (weeks start on Monday), on the days in <see cref="DaysMask"/> (one bit per DayOfWeek, Sunday as bit 0; 0 means
 /// the same weekday as the first one), until an optional last day. Typed as `every day`, `every weekday`, `every mon`, `every mon,wed`,
-/// `every week`, `every 2 weeks` or `every 2 weeks fri`, each with an optional `until 2026-12-31` (or `until 31dec`). Always spelled with "every", so a word such
-/// as "daily" in a sentence never makes a note repeat by accident.
+/// `every week`, `every 2 weeks`, `every 2 weeks fri`, `every month` or `every 3 months`, each with an optional `until 2026-12-31` (or `until 31dec`). Always spelled
+/// with "every", so a word such as "daily" in a sentence never makes a note repeat by accident. A monthly rule (<see cref="EveryMonths"/> above 0) falls on the
+/// same day of the month as the first one, or the last day of a month too short for it (the 31st becomes the 28th, 29th or 30th), and ignores the weekday
+/// settings.
 /// </summary>
-public sealed record Recurrence(int EveryWeeks, int DaysMask, DateTime? Until = null)
+public sealed record Recurrence(int EveryWeeks, int DaysMask, DateTime? Until = null, int EveryMonths = 0)
 {
     public const int AllDays = 0b1111111, Weekdays = 0b0111110;
     private static readonly string[] Full = { "sunday", "monday", "tuesday", "wednesday", "thursday", "friday", "saturday" };
@@ -20,6 +22,11 @@ public sealed record Recurrence(int EveryWeeks, int DaysMask, DateTime? Until = 
     {
         day = day.Date; start = start.Date;
         if (day < start || (Until is { } last && day > last.Date)) return false;
+        if (EveryMonths > 0)
+        {
+            var months = (day.Year - start.Year) * 12 + day.Month - start.Month;
+            return months % EveryMonths == 0 && day.Day == Math.Min(start.Day, DateTime.DaysInMonth(day.Year, day.Month));
+        }
         var mask = DaysMask == 0 ? 1 << (int)start.DayOfWeek : DaysMask;
         if ((mask & (1 << (int)day.DayOfWeek)) == 0) return false;
         return (WeekStart(day) - WeekStart(start)).Days / 7 % Math.Max(1, EveryWeeks) == 0;
@@ -43,7 +50,9 @@ public sealed record Recurrence(int EveryWeeks, int DaysMask, DateTime? Until = 
     /// <summary>The rule written so it can be typed back and read again: every weekday, every mon,wed, every 2 weeks fri, with until 2026-12-31 when it ends.</summary>
     public string Typed()
     {
-        var text = EveryWeeks <= 1
+        var text = EveryMonths > 0
+            ? EveryMonths == 1 ? "every month" : "every " + EveryMonths + " months"
+            : EveryWeeks <= 1
             ? DaysMask == 0 ? "every week" : "every " + Days()
             : "every " + EveryWeeks + " weeks" + (DaysMask == 0 ? "" : " " + Days());
         return Until is { } last ? text + " until " + last.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture) : text;
@@ -53,25 +62,29 @@ public sealed record Recurrence(int EveryWeeks, int DaysMask, DateTime? Until = 
     public string Words()
     {
         var days = DaysMask is AllDays or Weekdays or 0 ? Days() : string.Join(", ", Enumerable.Range(0, 7).Select(i => (i + 1) % 7).Where(i => (DaysMask & (1 << i)) != 0).Select(i => char.ToUpperInvariant(Full[i][0]) + Full[i][1..3]));
-        var text = EveryWeeks <= 1
+        var text = EveryMonths > 0
+            ? EveryMonths == 1 ? "Every month" : "Every " + EveryMonths + " months"
+            : EveryWeeks <= 1
             ? DaysMask == 0 ? "Every week" : "Every " + days
             : "Every " + EveryWeeks + " weeks" + (DaysMask == 0 ? "" : " on " + days);
         return Until is { } last ? text + " until " + last.ToString("d MMM yyyy", CultureInfo.GetCultureInfo("en-GB")) : text;
     }
 
-    /// <summary>The rule as stored: weeks;mask;last day.</summary>
-    public string ToRule() => $"{EveryWeeks};{DaysMask};{Until?.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture)}";
+    /// <summary>The rule as stored: weeks;mask;last day, and a fourth part, the months, only for a monthly rule (so a weekly rule is stored exactly as it always was).</summary>
+    public string ToRule() => $"{EveryWeeks};{DaysMask};{Until?.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture)}" + (EveryMonths > 0 ? ";" + EveryMonths : "");
     public static Recurrence? FromRule(string? rule)
     {
         var bits = (rule ?? "").Split(';');
-        if (bits.Length != 3 || !int.TryParse(bits[0], out var weeks) || !int.TryParse(bits[1], out var mask) || weeks < 1 || mask is < 0 or > AllDays) return null;
+        if (bits.Length is not (3 or 4) || !int.TryParse(bits[0], out var weeks) || !int.TryParse(bits[1], out var mask) || weeks < 1 || mask is < 0 or > AllDays) return null;
+        var months = 0;
+        if (bits.Length == 4 && (!int.TryParse(bits[3], out months) || months < 1)) return null;
         DateTime? until = null;
         if (bits[2].Length > 0)
         {
             if (!DateTime.TryParseExact(bits[2], "yyyy-MM-dd", CultureInfo.InvariantCulture, DateTimeStyles.None, out var last)) return null;
             until = last;
         }
-        return new Recurrence(weeks, mask, until);
+        return new Recurrence(weeks, mask, until, months);
     }
 
     private static int? DayList(string token)
@@ -97,12 +110,14 @@ public sealed record Recurrence(int EveryWeeks, int DaysMask, DateTime? Until = 
         var tokens = typed.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries);
         for (var i = 0; i < tokens.Length; i++)
         {
-            var word = tokens[i].ToLowerInvariant(); int length; int weeks = 1, mask;
+            var word = tokens[i].ToLowerInvariant(); int length; int weeks = 1, mask, months = 0;
             if (word == "every" && i + 1 < tokens.Length)
             {
                 var next = tokens[i + 1].ToLowerInvariant();
                 if (next == "day") { length = 2; mask = AllDays; }
                 else if (next is "weekday" or "weekdays") { length = 2; mask = Weekdays; }
+                else if (next == "month") { length = 2; mask = 0; months = 1; }
+                else if (int.TryParse(next, out var m) && m is >= 2 and <= 12 && i + 2 < tokens.Length && tokens[i + 2].ToLowerInvariant() is "months" or "month") { length = 3; mask = 0; months = m; }
                 else if (next == "week") { length = 2; mask = 0; if (i + 2 < tokens.Length && DayList(tokens[i + 2].ToLowerInvariant()) is { } listed) { mask = listed; length++; } }
                 else if (int.TryParse(next, out var n) && n is >= 2 and <= 12 && i + 2 < tokens.Length && tokens[i + 2].ToLowerInvariant() is "weeks" or "week")
                 {
@@ -117,7 +132,7 @@ public sealed record Recurrence(int EveryWeeks, int DaysMask, DateTime? Until = 
             if (i + length + 1 < tokens.Length && tokens[i + length].Equals("until", StringComparison.OrdinalIgnoreCase)
                 && NoteShorthand.DayFor(tokens[i + length + 1], today) is { } last) { until = last; length += 2; }
             rest = string.Join(" ", tokens.Take(i).Concat(tokens.Skip(i + length)));
-            return new Recurrence(weeks, mask, until);
+            return new Recurrence(weeks, mask, until, months);
         }
         return null;
     }
