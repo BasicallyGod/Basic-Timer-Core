@@ -11,6 +11,7 @@ An app keeps its own settings without changing these libraries: `StoreSettings.E
 
 ## Versions
 
+- **0.8.0** lets `LedgerEditor.Add` and `LedgerEditor.Paste` take `allowOverlap` (default false, so existing callers keep the strict behaviour). With it set, added or pasted blocks may share hours with recorded blocks and with each other, as edits already could; a block still never runs into the one being recorded, a paste is still whole or nothing, and two blocks of one account cannot start at the same second.
 - **Next release (0.5.0)** separates note type from scheduling. `DayNote.Kind` accepts Task, Meeting or Deadline independently of time, and `HasDate=false` represents an undated task. `Day` retains capture context for an undated task; it must not be interpreted as a due date. Untyped legacy notes retain their existing marker/time interpretation. `NoteSeries.Kind` preserves the type of recurring timed tasks. Storage format 6 adds these fields with a backup before upgrading; older app builds refuse the newer database, so keep the backup for rollback.
 - **0.2.0** moves the note shorthand, the `#Tag` rule and the shortcut parser here from the desk app (namespace `Timer.Core`), and adds `Feed`: reading Markdown files from a folder into one newest-first stream, with duplicate and age rules and a folder-size note. `Trinkets.FindAccountTag` in the desk app is now `AccountTags.Find`.
 - **0.1.0** is the engine and storage as they were when they left the original app.

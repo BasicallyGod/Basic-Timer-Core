@@ -168,9 +168,10 @@ public sealed partial class LedgerEditor
         if (row == old && Note(old) == note.Trim()) return;
         Change("Edit entry", () => { raw[row] = Fields(old); engine.Sessions[index] = row; SetNote(old, row, note); });
     }
-    public void Add(string account, DateTime start, DateTime end, string note)
+    /// <summary>Adds a block. With <paramref name="allowOverlap"/> it may share hours with recorded blocks (they stack on the timeline); it still never runs into the block being recorded now.</summary>
+    public void Add(string account, DateTime start, DateTime end, string note, bool allowOverlap = false)
     {
-        var row = TimedRow(account, start, end, "added"); ValidateInterval(row, null);
+        var row = TimedRow(account, start, end, "added"); ValidateInterval(row, null, allowOverlap);
         if (engine.Sessions.Any(s => s.Date == row.Date && s.Start == row.Start && s.Account.Equals(row.Account, StringComparison.OrdinalIgnoreCase)))
             throw new ArgumentException("Another entry uses that account and start time.");
         Change("Add time", () => { engine.Sessions.Add(row); SetNote(null, row, note); });
@@ -180,9 +181,10 @@ public sealed partial class LedgerEditor
     /// <summary>
     /// Adds copies of the blocks with the first one starting at <paramref name="anchor"/>, keeping each block's account, credited length, note and
     /// gaps between them, as one undoable step. Everything is checked before anything is added, so a paste is whole or not at all.
-    /// Like Add time it adds credited time, and it refuses a place that overlaps recorded or running time or runs past midnight.
+    /// Like Add time it adds credited time, and it refuses a place that runs past midnight or into the block being recorded. It also refuses a place that overlaps
+    /// recorded time unless <paramref name="allowOverlap"/> is set, in which case copied blocks may overlap each other and what is already there.
     /// </summary>
-    public void Paste(IReadOnlyList<ClipBlock> blocks, DateTime anchor)
+    public void Paste(IReadOnlyList<ClipBlock> blocks, DateTime anchor, bool allowOverlap = false)
     {
         if (blocks.Count == 0) throw new ArgumentException("There is nothing copied to paste.");
         anchor = new DateTime(anchor.Year, anchor.Month, anchor.Day, anchor.Hour, anchor.Minute, anchor.Second);
@@ -192,8 +194,11 @@ public sealed partial class LedgerEditor
             var start = anchor + block.Offset;
             var row = new SessionRow(start.ToString("yyyy-MM-dd"), block.Account, start.ToString("HH:mm:ss"), "added", block.Minutes);
             if (row.Duration <= TimeSpan.Zero || row.To > start.Date.AddDays(1)) throw new ArgumentException("The copied time does not fit before midnight from here. Choose an earlier time.");
-            ValidateInterval(row, null);
-            if (added.Any(a => a.Row.From < row.To && a.Row.To > row.From) || engine.Sessions.Any(x => x.Date == row.Date && x.Start == row.Start && x.Account.Equals(row.Account, StringComparison.OrdinalIgnoreCase)))
+            ValidateInterval(row, null, allowOverlap);
+            if (added.Any(a => a.Row.Date == row.Date && a.Row.Start == row.Start && a.Row.Account.Equals(row.Account, StringComparison.OrdinalIgnoreCase))
+                || engine.Sessions.Any(x => x.Date == row.Date && x.Start == row.Start && x.Account.Equals(row.Account, StringComparison.OrdinalIgnoreCase)))
+                throw new ArgumentException(allowOverlap ? "Another entry uses that account and start time." : "This overlaps recorded or running time. Choose a free gap.");
+            if (!allowOverlap && added.Any(a => a.Row.From < row.To && a.Row.To > row.From))
                 throw new ArgumentException("This overlaps recorded or running time. Choose a free gap.");
             added.Add((row, block.Note));
         }
