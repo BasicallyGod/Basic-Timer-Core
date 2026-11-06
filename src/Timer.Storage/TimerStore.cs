@@ -77,7 +77,7 @@ public sealed class TimerStore : IDisposable
     public List<DayNote> LoadDayNotes() => database.Query("SELECT id, day, at_time, text, done, end_time, series_id, kind, has_date FROM day_notes ORDER BY day, at_time, id",
         r => new DayNote(r.GetInt64(0), DateTime.ParseExact(r.GetString(1), "yyyy-MM-dd", CultureInfo.InvariantCulture),
             r.IsDBNull(2) ? null : TimeSpan.ParseExact(r.GetString(2), @"hh\:mm", CultureInfo.InvariantCulture), r.GetString(3), r.GetInt64(4) == 1,
-            r.IsDBNull(5) ? null : TimeSpan.ParseExact(r.GetString(5), @"hh\:mm", CultureInfo.InvariantCulture), r.IsDBNull(6) ? null : r.GetInt64(6),
+            r.IsDBNull(5) ? null : ParseNoteTime(r.GetString(5)), r.IsDBNull(6) ? null : r.GetInt64(6),
             r.IsDBNull(7) ? null : (DayNoteKind)r.GetInt32(7), r.GetInt64(8) == 1));
     public long AddDayNote(DateTime day, TimeSpan? at, string text, TimeSpan? end = null, long? seriesId = null, DayNoteKind? kind = null, bool hasDate = true)
     {
@@ -93,12 +93,13 @@ public sealed class TimerStore : IDisposable
             ("$s", note.SeriesId), ("$k", (int?)note.Kind), ("$h", note.HasDate ? 1 : 0), ("$i", note.Id));
     }
     // ---- Repeating notes. The type is part of the template, so a timed task stays a task across occurrences. ----
-    private static string Time(TimeSpan? time) => time?.ToString(@"hh\:mm", CultureInfo.InvariantCulture) ?? "";
+    private static string Time(TimeSpan? time) => time?.ToString(time.Value.Days == 0 ? @"hh\:mm" : @"d\.hh\:mm", CultureInfo.InvariantCulture) ?? "";
+    private static TimeSpan ParseNoteTime(string text) => TimeSpan.ParseExact(text, new[] { @"hh\:mm", @"d\.hh\:mm" }, CultureInfo.InvariantCulture);
     private static string DayText(DateTime day) => day.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);
     public List<NoteSeries> LoadSeries() => database.Query("SELECT id, rule, start_day, generated_to, text, at_time, end_time, kind FROM note_series ORDER BY id",
         r => new NoteSeries(r.GetInt64(0), Recurrence.FromRule(r.GetString(1)) ?? new Recurrence(1, 0), DateTime.ParseExact(r.GetString(2), "yyyy-MM-dd", CultureInfo.InvariantCulture),
             DateTime.ParseExact(r.GetString(3), "yyyy-MM-dd", CultureInfo.InvariantCulture), r.GetString(4),
-            r.IsDBNull(5) ? null : TimeSpan.ParseExact(r.GetString(5), @"hh\:mm", CultureInfo.InvariantCulture), r.IsDBNull(6) ? null : TimeSpan.ParseExact(r.GetString(6), @"hh\:mm", CultureInfo.InvariantCulture),
+            r.IsDBNull(5) ? null : ParseNoteTime(r.GetString(5)), r.IsDBNull(6) ? null : ParseNoteTime(r.GetString(6)),
             r.IsDBNull(7) ? null : (DayNoteKind)r.GetInt32(7)));
     public long AddSeries(NoteSeries series)
     {

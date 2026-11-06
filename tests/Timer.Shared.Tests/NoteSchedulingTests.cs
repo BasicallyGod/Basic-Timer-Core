@@ -128,13 +128,13 @@ public sealed class NoteSchedulingTests : IDisposable
         }
         using (var store = new TimerStore(folder))
         {
-            Assert.Equal(6, store.Database.Version); var notes = store.LoadDayNotes(); Assert.Equal(2, notes.Count);
+            Assert.Equal(TimerDatabase.SchemaVersion, store.Database.Version); var notes = store.LoadDayNotes(); Assert.Equal(2, notes.Count);
             Assert.All(notes, n => { Assert.Null(n.Kind); Assert.True(n.HasDate); });
             var call = notes.Single(n => n.Id == 1); var deadline = notes.Single(n => n.Id == 2);
             Assert.Equal(DayNoteKind.Meeting, DayNotes.KindOf(call)); Assert.True(call.Done);
             Assert.True(DayNotes.IsDeadline(deadline)); Assert.Equal("Legacy call", NoteShorthand.Display(call, new[] { "Account one" }));
         }
-        var backup = Assert.Single(Directory.GetFiles(Path.Combine(folder, "Backups"), "timer-before-format-6-*.db"));
+        var backup = Assert.Single(Directory.GetFiles(Path.Combine(folder, "Backups"), $"timer-before-format-{TimerDatabase.SchemaVersion}-*.db"));
         using (var connection = new SqliteConnection(new SqliteConnectionStringBuilder { DataSource = backup, Pooling = false }.ToString()))
         {
             connection.Open(); using var command = connection.CreateCommand(); command.CommandText = "PRAGMA user_version";
