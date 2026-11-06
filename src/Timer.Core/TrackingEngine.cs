@@ -74,6 +74,24 @@ public sealed class TrackingEngine
     public DateTime Now => clock();
     public TrackingEngine(WorkSchedule? schedule = null, Func<DateTime>? clock = null)
     { Schedule = schedule ?? new(); this.clock = clock ?? (() => DateTime.Now); }
+    private TimeSpan dayStart;
+    /// <summary>
+    /// Where a day begins, midnight by default. A day is the 24 hours from this time, so someone working through the night can have a shift in one day:
+    /// with 18:00 a 22:00 to 06:00 shift is one day, and the day's work is counted on the day it starts. A recording is cut at this time instead of at midnight,
+    /// and the ledger's totals by day (<see cref="Credited"/>, the reviews and the exports) follow it. Rows keep their calendar date and may cross midnight.
+    /// Only whole times of day from 00:00 up to, but not including, 24:00 are accepted.
+    /// </summary>
+    public TimeSpan DayStart
+    {
+        get => dayStart;
+        set { if (value < TimeSpan.Zero || value >= TimeSpan.FromDays(1)) throw new ArgumentOutOfRangeException(nameof(value), "A day can start at any time from 00:00 to 23:59."); dayStart = value; }
+    }
+    /// <summary>The day, as the date it starts on, that a moment belongs to: the day it falls in when days begin at <see cref="DayStart"/>.</summary>
+    public DateTime WorkDay(DateTime moment) => (moment - dayStart).Date;
+    /// <summary>The day a block counts on: the day it starts.</summary>
+    public DateTime WorkDayOf(SessionRow row) => WorkDay(row.From);
+    /// <summary>The moment a day begins, which is its date plus <see cref="DayStart"/>.</summary>
+    public DateTime DayBegins(DateTime day) => day.Date + dayStart;
 
     public DayPlan Plan(DateTime day)
     {
@@ -211,7 +229,7 @@ public sealed class TrackingEngine
         var between = Sessions.LastOrDefault(s => s.Duration > TimeSpan.Zero && s.Duration <= MistakeWindow && Math.Abs((s.To - active.Start).TotalSeconds) <= 2
             && !s.Account.Equals(active.Account, StringComparison.OrdinalIgnoreCase));
         if (between is null) return null;
-        var earlier = Sessions.LastOrDefault(s => s.Duration > TimeSpan.Zero && s.Account.Equals(active.Account, StringComparison.OrdinalIgnoreCase) && s.Day == between.Day
+        var earlier = Sessions.LastOrDefault(s => s.Duration > TimeSpan.Zero && s.Account.Equals(active.Account, StringComparison.OrdinalIgnoreCase) && WorkDayOf(s) == WorkDayOf(between)
             && Math.Abs((s.To - between.From).TotalSeconds) <= 2);
         return earlier is null ? null : (earlier, between);
     }
@@ -235,10 +253,11 @@ public sealed class TrackingEngine
     }
     public void AddSession(string account, DateTime start, DateTime end)
     {
-        // Match the established midnight split and minimum three-second recording threshold.
+        // Match the established split, at midnight or wherever days begin (DayStart), and minimum three-second recording threshold.
         while (start < end)
         {
-            var cap = end < start.Date.AddDays(1) ? end : start.Date.AddDays(1);
+            var boundary = start.Date + dayStart; if (boundary <= start) boundary = boundary.AddDays(1);
+            var cap = end < boundary ? end : boundary;
             var minutes = (cap - start).TotalMinutes;
             if (minutes >= .05)
             {
@@ -251,15 +270,15 @@ public sealed class TrackingEngine
     }
     public TimeSpan Credited(string account, DateTime from, DateTime until)
     {
-        var credited = Sessions.Where(s => s.Account.Equals(account, StringComparison.OrdinalIgnoreCase) && s.Day >= from.Date && s.Day < until.Date)
+        var credited = Sessions.Where(s => s.Account.Equals(account, StringComparison.OrdinalIgnoreCase) && WorkDayOf(s) >= from.Date && WorkDayOf(s) < until.Date)
             .Aggregate(TimeSpan.Zero, (sum, s) => sum + s.Duration);
         if (Active is { } active && active.Account.Equals(account, StringComparison.OrdinalIgnoreCase))
-            credited += Intersection(active.Start, Now, from.Date, until.Date);
+            credited += Intersection(active.Start, Now, DayBegins(from), DayBegins(until));
         return credited;
     }
     /// <summary>How much of the recording that is running now falls on this day, or nothing when it is a break or nothing is running. Saved entries do not include it yet.</summary>
     public TimeSpan ActiveElapsedOn(DateTime day, bool includeBreak = false)
-        => Active is { } active && (includeBreak || !BreakAccount.Is(active.Account)) ? Intersection(active.Start, Now, day.Date, day.Date.AddDays(1)) : TimeSpan.Zero;
+        => Active is { } active && (includeBreak || !BreakAccount.Is(active.Account)) ? Intersection(active.Start, Now, DayBegins(day), DayBegins(day).AddDays(1)) : TimeSpan.Zero;
     /// <summary>Whether an overnight shift touches this calendar day: it starts on it, or one from the day before runs into it.</summary>
     private bool OvernightTouches(DateTime day) => Schedule.Tail(day) is not null || WorkSchedule.IsOvernight(Plan(day));
 

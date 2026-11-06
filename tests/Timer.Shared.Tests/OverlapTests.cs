@@ -44,11 +44,10 @@ public sealed class OverlapTests
     }
 
     [Fact]
-    public void PasteStillRefusesMidnightAndTheRunningBlockAndTwoCopiesWithTheSameKey()
+    public void PasteStillRefusesTheRunningBlockAndTwoCopiesWithTheSameKey()
     {
         var now = Day.AddHours(11); var engine = Engine(() => now); var editor = new LedgerEditor(engine);
         var one = new[] { new LedgerEditor.ClipBlock("Account one", TimeSpan.Zero, "60.00", "") };
-        Assert.Throws<ArgumentException>(() => editor.Paste(one, Day.AddHours(23.5), allowOverlap: true));
         var twins = new[] { new LedgerEditor.ClipBlock("Account one", TimeSpan.Zero, "30.00", ""), new LedgerEditor.ClipBlock("Account one", TimeSpan.Zero, "20.00", "") };
         Assert.Throws<ArgumentException>(() => editor.Paste(twins, Day.AddHours(8), allowOverlap: true));
         engine.ToggleAccount("Account two"); now = Day.AddHours(12);

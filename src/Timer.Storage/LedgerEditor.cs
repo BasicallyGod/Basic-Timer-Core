@@ -99,10 +99,12 @@ public sealed partial class LedgerEditor
         if (index < 0) throw new InvalidOperationException("This entry changed. Reopen it before editing.");
         return index;
     }
+    /// <summary>The longest a block can be. It may cross midnight, and counts on the day it starts.</summary>
+    public static readonly TimeSpan MaxBlock = TimeSpan.FromHours(24);
     public static SessionRow TimedRow(string account, DateTime start, DateTime end, string origin)
     {
         if (string.IsNullOrWhiteSpace(account) || end <= start || (end - start).TotalSeconds < 3
-            || end > start.Date.AddDays(1)) throw new ArgumentException("Use an interval of at least three seconds within one day.");
+            || end - start > MaxBlock) throw new ArgumentException("Use an interval of at least three seconds and no more than 24 hours.");
         return new(start.ToString("yyyy-MM-dd"), account, start.ToString("HH:mm:ss"), origin,
             Math.Round((end - start).TotalMinutes, 2, MidpointRounding.ToEven).ToString("0.00", CultureInfo.InvariantCulture));
     }
@@ -193,7 +195,7 @@ public sealed partial class LedgerEditor
         {
             var start = anchor + block.Offset;
             var row = new SessionRow(start.ToString("yyyy-MM-dd"), block.Account, start.ToString("HH:mm:ss"), "added", block.Minutes);
-            if (row.Duration <= TimeSpan.Zero || row.To > start.Date.AddDays(1)) throw new ArgumentException("The copied time does not fit before midnight from here. Choose an earlier time.");
+            if (row.Duration <= TimeSpan.Zero || row.Duration > MaxBlock) throw new ArgumentException("A copied block can be at most 24 hours.");
             ValidateInterval(row, null, allowOverlap);
             if (added.Any(a => a.Row.Date == row.Date && a.Row.Start == row.Start && a.Row.Account.Equals(row.Account, StringComparison.OrdinalIgnoreCase))
                 || engine.Sessions.Any(x => x.Date == row.Date && x.Start == row.Start && x.Account.Equals(row.Account, StringComparison.OrdinalIgnoreCase)))
