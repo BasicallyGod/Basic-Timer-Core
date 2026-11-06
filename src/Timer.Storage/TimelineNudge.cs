@@ -36,7 +36,7 @@ public sealed partial class LedgerEditor
         {
             var row = pair.Value;
             CheckNoteKey(pair.Key);
-            if (row.From < source.Day || row.To > source.Day.AddDays(1))
+            if (plan.Count > 1 && (row.From < source.Day || row.To > source.Day.AddDays(1)))
                 throw new ArgumentException("There is not enough room to insert these blocks within this day.");
             if (final.Count(s => s.Date == row.Date && s.Start == row.Start && s.Account.Equals(row.Account, StringComparison.OrdinalIgnoreCase)) > 1)
                 throw new ArgumentException("Another entry uses that account and start time.");
@@ -69,7 +69,7 @@ public sealed partial class LedgerEditor
         {
             var row = pair.Value;
             CheckNoteKey(pair.Key);
-            if (row.From < source.Day || row.To > source.Day.AddDays(1))
+            if (plan.Count > 1 && (row.From < source.Day || row.To > source.Day.AddDays(1)))
                 throw new ArgumentException("There is not enough room before midnight to move the later blocks.");
             if (final.Count(s => s.Date == row.Date && s.Start == row.Start && s.Account.Equals(row.Account, StringComparison.OrdinalIgnoreCase)) > 1)
                 throw new ArgumentException("Another entry uses that account and start time.");

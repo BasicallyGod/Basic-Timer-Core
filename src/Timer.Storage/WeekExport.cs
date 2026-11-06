@@ -28,8 +28,8 @@ public sealed class WeekExport
     {
         this.week = week.Date; this.days = days;
         Entries = editor.Entries(this.week, this.week.AddDays(days));
-        var source = engine.Sessions.Where(s => s.Day >= this.week && s.Day < this.week.AddDays(days)).ToArray();
-        foreach (var bucket in source.GroupBy(s => (s.Day, Account: s.Account.ToUpperInvariant())))
+        var source = engine.Sessions.Where(s => engine.WorkDayOf(s) >= this.week && engine.WorkDayOf(s) < this.week.AddDays(days)).ToArray();
+        foreach (var bucket in source.GroupBy(s => (Day: engine.WorkDayOf(s), Account: s.Account.ToUpperInvariant())))
         {
             var expected = bucket.Sum(s => decimal.Parse(s.Minutes, CultureInfo.InvariantCulture));
             var actual = Entries.Where(e => e.Day == bucket.Key.Day && e.Account.ToUpperInvariant() == bucket.Key.Account).Sum(e => e.Minutes);

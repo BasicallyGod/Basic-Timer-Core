@@ -40,7 +40,7 @@ public sealed partial class LedgerEditor
             var start = previous.Day.AddSeconds(Math.Ceiling((previous.To - previous.Day).TotalSeconds - 1e-8));
             var minutes = decimal.Floor((decimal)(next.From - start).TotalMinutes * 100m + .00000001m) / 100m;
             if (minutes <= 0) continue;
-            result.Add(new(previous.Date, previous.Account, start.ToString("HH:mm:ss"), "added", minutes.ToString("0.00", CultureInfo.InvariantCulture)));
+            result.Add(new(start.ToString("yyyy-MM-dd"), previous.Account, start.ToString("HH:mm:ss"), "added", minutes.ToString("0.00", CultureInfo.InvariantCulture)));
         }
         return result;
     }
@@ -80,7 +80,7 @@ public sealed partial class LedgerEditor
     public IReadOnlyList<ReviewEntry> Entries(DateTime from, DateTime until)
     {
         var result = new List<ReviewEntry>();
-        var relevant = engine.Sessions.Where(s => s.Day >= from.Date && s.Day < until.Date).ToArray();
+        var relevant = engine.Sessions.Where(s => engine.WorkDayOf(s) >= from.Date && engine.WorkDayOf(s) < until.Date).ToArray();
         var used = new HashSet<SessionRow>(ReferenceEqualityComparer.Instance);
         // Old files are read lazily so unknown metadata remains untouched until a review/edit is requested.
         if (groups is not null)
@@ -90,15 +90,15 @@ public sealed partial class LedgerEditor
             {
                 var members = relevant.Where(s => group.Any(r => Key(r) == Key(s))).ToArray();
                 if (members.Length < 2) continue;
-                if (members.Any(s => s.Day != members[0].Day || s.Account != members[0].Account || used.Contains(s)))
+                if (members.Any(s => engine.WorkDayOf(s) != engine.WorkDayOf(members[0]) || s.Account != members[0].Account || used.Contains(s)))
                     throw new InvalidDataException("Invalid entry group: members must share an account and day and belong to one group.");
-                result.Add(new(members[0].Account, members[0].Day, null, null, members.Sum(Minutes), "Grouped sessions",
+                result.Add(new(members[0].Account, engine.WorkDayOf(members[0]), null, null, members.Sum(Minutes), "Grouped sessions",
                     string.Join("\n", members.Select(Note).Where(n => n.Length > 0).Distinct()), members, GroupId: group.Key));
                 foreach (var member in members) used.Add(member);
             }
         }
         foreach (var row in relevant.Where(s => !used.Contains(s)))
-            result.Add(new(row.Account, row.Day, row.From, row.To, Minutes(row),
+            result.Add(new(row.Account, engine.WorkDayOf(row), row.From, row.To, Minutes(row),
                 row.End == "edited" ? "Edited by hand" : row.End == "added" ? "Added by hand" : "Time", Note(row), new[] { row }));
         return result.OrderBy(r => r.Day).ThenBy(r => r.Account, StringComparer.OrdinalIgnoreCase).ThenBy(r => r.Start).ToArray();
     }
