@@ -51,8 +51,11 @@ public static class DayNotes
     public static void Validate(DayNote note)
     {
         if (note.Kind is { } kind && !Enum.IsDefined(kind)) throw new ArgumentException("Unknown note kind.", nameof(note));
-        foreach (var time in new[] { note.At, note.End })
-            if (time is { } value && (value < TimeSpan.Zero || value >= TimeSpan.FromDays(1))) throw new ArgumentException("Times must fall within one day.", nameof(note));
+        if (note.At is { } at && (at < TimeSpan.Zero || at >= TimeSpan.FromDays(1)))
+            throw new ArgumentException("The start must fall within one calendar day.", nameof(note));
+        // End is an offset from Day, so an overnight meeting can finish on the following date without splitting the item.
+        if (note.End is { } until && (note.At is not { } from || until <= from || until - from > TimeSpan.FromDays(1)))
+            throw new ArgumentException("A meeting must end after its start and last at most 24 hours.", nameof(note));
         if (!note.HasDate && (!IsTask(note) || note.At is not null || note.End is not null || note.SeriesId is not null))
             throw new ArgumentException("Only a task without times or recurrence can be undated.", nameof(note));
         if (note.Kind == DayNoteKind.Meeting && note.At is null) throw new ArgumentException("A meeting needs a start time.", nameof(note));

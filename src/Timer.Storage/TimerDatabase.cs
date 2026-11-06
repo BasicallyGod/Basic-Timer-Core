@@ -16,7 +16,7 @@ public sealed class DatabaseTooNewException : IOException
 // change either lands whole or not at all.
 public sealed class TimerDatabase : IDisposable
 {
-    public const int SchemaVersion = 6;
+    public const int SchemaVersion = 7;
     public const string FileName = "timer.db";
     public const int DailyCopiesKept = 14;
     // Numbered upgrades from one format to the next: entry 0 takes the data from format 1 to 2, entry 1 from 2 to 3, and so on. A build that adds a table
@@ -81,7 +81,10 @@ public sealed class TimerDatabase : IDisposable
         // Format 6 separates type from schedule. Null kinds and dated flags preserve all existing notes and series.
         "ALTER TABLE day_notes ADD COLUMN kind INTEGER CHECK (kind IN (0, 1, 2)); "
         + "ALTER TABLE day_notes ADD COLUMN has_date INTEGER NOT NULL DEFAULT 1 CHECK (has_date IN (0, 1)); "
-        + "ALTER TABLE note_series ADD COLUMN kind INTEGER CHECK (kind IN (0, 1, 2))"
+        + "ALTER TABLE note_series ADD COLUMN kind INTEGER CHECK (kind IN (0, 1, 2))",
+        // Format 7 permits a day component in meeting end_time (for example 1.02:00). No existing values change.
+        // Bump the version even without a table change so older readers refuse the new encoding instead of misreading it.
+        "SELECT 1"
     };
 
     private readonly SqliteConnection connection;
