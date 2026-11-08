@@ -11,6 +11,7 @@ public sealed class WeekExport
 {
     private readonly DateTime week;
     private readonly int days;
+    private readonly TimeSpan dayStart;
     public bool IsMonth => days != 7;
     /// <summary>The first and last day shown, for a title.</summary>
     public (DateTime First, DateTime Last) Period => (week, week.AddDays(days - 1));
@@ -26,7 +27,7 @@ public sealed class WeekExport
     public long LunchUnits { get; }
     public WeekExport(LedgerEditor editor, TrackingEngine engine, DateTime week, int days = 7)
     {
-        this.week = week.Date; this.days = days;
+        this.week = week.Date; this.days = days; dayStart = engine.DayStart;
         Entries = editor.Entries(this.week, this.week.AddDays(days));
         var source = engine.Sessions.Where(s => engine.WorkDayOf(s) >= this.week && engine.WorkDayOf(s) < this.week.AddDays(days)).ToArray();
         foreach (var bucket in source.GroupBy(s => (Day: engine.WorkDayOf(s), Account: s.Account.ToUpperInvariant())))
@@ -64,12 +65,19 @@ public sealed class WeekExport
     /// </summary>
     public void VerifyAgainst(TimerDatabase database)
     {
-        var stored = database.Query(@"SELECT COALESCE(a.name, $break), e.day, SUM(e.seconds) FROM entries e LEFT JOIN accounts a ON a.id = e.account_id
-            WHERE e.day >= $from AND e.day < $to GROUP BY 1, 2",
-            r => (Account: r.GetString(0), Day: r.GetString(1), Minutes: (decimal)r.GetDouble(2) / 60m),
-            ("$break", BreakAccount.Name), ("$from", week.ToString("yyyy-MM-dd")), ("$to", week.AddDays(days).ToString("yyyy-MM-dd")));
-        var shown = Entries.GroupBy(e => (Account: e.Account.ToUpperInvariant(), Day: e.Day.ToString("yyyy-MM-dd"))).ToDictionary(g => g.Key, g => g.Sum(e => e.Minutes));
-        var saved = stored.ToDictionary(r => (Account: r.Account.ToUpperInvariant(), r.Day), r => r.Minutes);
+        var from = week + dayStart;
+        var until = from.AddDays(days);
+        // Use the calendar-date index to narrow the read, then the full timestamps to bound the workdays.
+        var stored = database.Query(@"SELECT COALESCE(a.name, $break), e.start_at, e.seconds FROM entries e LEFT JOIN accounts a ON a.id = e.account_id
+            WHERE e.day >= $firstDay AND e.day <= $lastDay",
+            r => (Account: r.GetString(0), Start: DateTime.ParseExact(r.GetString(1), "yyyy-MM-dd'T'HH:mm:ss", CultureInfo.InvariantCulture), Seconds: (decimal)r.GetDouble(2)),
+            ("$break", BreakAccount.Name),
+            ("$firstDay", from.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture)),
+            ("$lastDay", until.AddTicks(-1).ToString("yyyy-MM-dd", CultureInfo.InvariantCulture)));
+        var shown = Entries.GroupBy(e => (Account: e.Account.ToUpperInvariant(), e.Day)).ToDictionary(g => g.Key, g => g.Sum(e => e.Minutes));
+        var saved = stored.Where(r => r.Start >= from && r.Start < until)
+            .GroupBy(r => (Account: r.Account.ToUpperInvariant(), Day: (r.Start - dayStart).Date))
+            .ToDictionary(g => g.Key, g => g.Sum(r => r.Seconds) / 60m);
         foreach (var key in shown.Keys.Union(saved.Keys))
             if (Math.Abs(shown.GetValueOrDefault(key) - saved.GetValueOrDefault(key)) > 0.005m)
                 throw new InvalidDataException("The saved records do not match this period's totals, so the export was stopped. Nothing was written.");

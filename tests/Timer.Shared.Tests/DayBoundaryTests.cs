@@ -54,6 +54,32 @@ public sealed class DayBoundaryTests
     }
 
     [Fact]
+    public void ExportChecksSavedRowsAtBothEdgesOfTheWorkdayPeriod()
+    {
+        var folder = Path.Combine(Path.GetTempPath(), "timer-workday-export-" + Guid.NewGuid());
+        try
+        {
+            using var store = new TimerStore(folder);
+            var engine = Engine(dayStart: TimeSpan.FromHours(18));
+            var settings = store.Load(engine);
+            engine.AddSession("Account one", Day.AddHours(17), Day.AddHours(18));
+            engine.AddSession("Account one", Day.AddHours(18), Day.AddHours(19));
+            engine.AddSession(BreakAccount.Name, Day.AddDays(1).AddHours(2), Day.AddDays(1).AddHours(2.25));
+            engine.AddSession("Account one", Day.AddDays(1).AddHours(18), Day.AddDays(1).AddHours(19));
+            store.Save(engine, settings);
+
+            var export = new WeekExport(store.Editor!, engine, Day, days: 1);
+            Assert.Equal(100, export.TotalUnits);
+            Assert.Equal(25, export.LunchUnits);
+            export.VerifyAgainst(store.Database);
+
+            store.Database.Execute("UPDATE entries SET seconds = seconds + 60 WHERE kind = 'break'");
+            Assert.Throws<InvalidDataException>(() => export.VerifyAgainst(store.Database));
+        }
+        finally { Directory.Delete(folder, true); }
+    }
+
+    [Fact]
     public void TheRunningBlockCountsOnTheDayItBelongsTo()
     {
         var clock = Day.AddDays(1).AddHours(3); var engine = new TrackingEngine(clock: () => clock) { DayStart = TimeSpan.FromHours(18) }; // 03:00 Saturday, in Friday's day.
