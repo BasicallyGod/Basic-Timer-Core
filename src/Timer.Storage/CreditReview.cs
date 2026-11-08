@@ -49,7 +49,7 @@ public sealed partial class LedgerEditor
     {
         foreach (var row in selected) Index(row);
         if (selected.Count < 2 || selected.Select(Key).Distinct().Count() != selected.Count
-            || selected.Any(s => s.Day != selected[0].Day || s.Account != selected[0].Account)
+            || selected.Any(s => s.Day != selected[0].Day || engine.WorkDayOf(s) != engine.WorkDayOf(selected[0]) || s.Account != selected[0].Account)
             || selected.Any(s => engine.Sessions.Count(r => Key(r) == Key(s)) != 1))
             throw new ArgumentException("Select at least two distinct entries for the same account and day.");
         if (!CanCombine(selected)) throw new ArgumentException("Merge blocks with only blank gaps between them. Overlapping or intervening time cannot be merged.");
@@ -77,6 +77,15 @@ public sealed partial class LedgerEditor
         if (!table.Rows.Any(r => r["GroupId"] == id)) throw new InvalidOperationException("This group changed. Reopen it.");
         Change("Ungroup entries", () => { table.Rows.RemoveAll(r => r["GroupId"] == id); groups = table.Serialize(); });
     }
+
+    /// <summary>Whether a row belongs to a saved group, even when its workday shows it separately.</summary>
+    public bool IsGrouped(SessionRow row)
+    {
+        if (groups is null) return false;
+        var key = Key(row);
+        return CsvTable.Parse(groups, groupHeaders).Rows.Any(member => Key(member) == key);
+    }
+
     public IReadOnlyList<ReviewEntry> Entries(DateTime from, DateTime until)
     {
         var result = new List<ReviewEntry>();
@@ -90,11 +99,17 @@ public sealed partial class LedgerEditor
             {
                 var members = relevant.Where(s => group.Any(r => Key(r) == Key(s))).ToArray();
                 if (members.Length < 2) continue;
-                if (members.Any(s => engine.WorkDayOf(s) != engine.WorkDayOf(members[0]) || s.Account != members[0].Account || used.Contains(s)))
-                    throw new InvalidDataException("Invalid entry group: members must share an account and day and belong to one group.");
-                result.Add(new(members[0].Account, engine.WorkDayOf(members[0]), null, null, members.Sum(Minutes), "Grouped sessions",
-                    string.Join("\n", members.Select(Note).Where(n => n.Length > 0).Distinct()), members, GroupId: group.Key));
-                foreach (var member in members) used.Add(member);
+                if (members.Any(s => s.Account != members[0].Account || used.Contains(s)))
+                    throw new InvalidDataException("Invalid entry group: members must share an account and belong to one group.");
+                // A changed boundary can split an existing group. Render each workday separately without rewriting the group.
+                foreach (var day in members.GroupBy(engine.WorkDayOf))
+                {
+                    var slice = day.ToArray();
+                    if (slice.Length < 2) continue;
+                    result.Add(new(slice[0].Account, day.Key, null, null, slice.Sum(Minutes), "Grouped sessions",
+                        string.Join("\n", slice.Select(Note).Where(n => n.Length > 0).Distinct()), slice, GroupId: group.Key));
+                    foreach (var member in slice) used.Add(member);
+                }
             }
         }
         foreach (var row in relevant.Where(s => !used.Contains(s)))
